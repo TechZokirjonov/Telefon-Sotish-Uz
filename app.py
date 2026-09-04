@@ -405,7 +405,20 @@ async function openDetail(id){
  const m=document.getElementById('detailModal');m.classList.remove('hidden');m.classList.add('flex');
 }
 function closeDetailModal(){const m=document.getElementById('detailModal');m.classList.add('hidden');m.classList.remove('flex');}
-async function deleteListing(id){if(!confirm("Rostdan ham bu e'lonni o'chirmoqchimisiz?"))return;const t=localStorage.getItem('token');if(!t)return openAuthModal();const r=await fetch(`/api/listings/${id}`,{method:'DELETE',headers:{Authorization:`Bearer ${t}`}});const d=await r.json();if(r.ok){closeDetailModal();loadListings();alert("E'lon o'chirildi!");}else alert(d.detail||'Xatolik!');}
+async function deleteListing(id){
+ const t=localStorage.getItem('token');
+ if(!t || !loggedUser){alert("E'lon o'chirish uchun avval tizimga kiring!");openAuthModal();return;}
+ try{
+  const authCheck=await fetch('/api/me',{headers:{Authorization:`Bearer ${t}`} });
+  if(!authCheck.ok){localStorage.removeItem('token');localStorage.removeItem('username');loggedUser=null;updateUIState();closeDetailModal();alert("Sessiya tugagan. Qayta tizimga kiring!");openAuthModal();return;}
+  if(!confirm("Rostdan ham bu e'lonni o'chirmoqchimisiz?"))return;
+  const r=await fetch(`/api/listings/${id}`,{method:'DELETE',headers:{Authorization:`Bearer ${t}`}});
+  const d=await r.json();
+  if(r.ok){closeDetailModal();loadListings();alert("E'lon o'chirildi!");}
+  else if(r.status===401){localStorage.removeItem('token');localStorage.removeItem('username');loggedUser=null;updateUIState();closeDetailModal();alert("Avval tizimga kiring!");openAuthModal();}
+  else alert(d.detail||'Xatolik!');
+ }catch(e){alert("Server bilan bog'lanib bo'lmadi!");}
+}
 async function addToCart(id){const r=await fetch(`/api/listings/${id}`);if(!r.ok)return;const p=await r.json();if(cart.some(x=>x.id===p.id))return alert('Bu mahsulot savatchada bor!');cart.push({id:p.id,model:p.model,price:p.price,image:p.image});localStorage.setItem('cart',JSON.stringify(cart));updateCartCount();alert("Mahsulot savatchaga qo'shildi!");}
 function updateCartCount(){const c=document.getElementById('cartCount');if(c)c.textContent=cart.length;}
 function openCartModal(){const c=document.getElementById('cartItemsContainer');if(!c)return;document.getElementById('cartTotalCount').textContent=`${cart.length} ta`;c.innerHTML=cart.length?cart.map((x,i)=>`<div class="flex items-center justify-between border-b border-blue-900/40 pb-2"><div class="flex items-center gap-3"><img src="${x.image}" class="w-12 h-12 object-cover rounded-xl"><div><h5 class="font-bold text-white text-sm">${x.model}</h5><span class="text-white font-black text-xs">${x.price}</span></div></div><button onclick="removeFromCart(${i})" class="text-blue-400 hover:text-red-400"><i class="fa-solid fa-trash"></i></button></div>`).join(''):`<p class="text-blue-300/60 text-center text-sm py-6">Savatchangiz bo'sh</p>`;const m=document.getElementById('cartModal');m.classList.remove('hidden');m.classList.add('flex');}
@@ -417,7 +430,17 @@ function toggleAuthMode(){isRegisterMode=!isRegisterMode;document.getElementById
 async function getStoredSession(){const t=localStorage.getItem('token');if(!t){loggedUser=null;return false;}try{const r=await fetch('/api/me',{headers:{Authorization:`Bearer ${t}`}});if(!r.ok){localStorage.removeItem('token');localStorage.removeItem('username');loggedUser=null;return false;}const d=await r.json();loggedUser=d.username;localStorage.setItem('username',loggedUser);return true;}catch(e){return false;}}
 
 document.getElementById('authForm').addEventListener('submit',async e=>{e.preventDefault();const u=document.getElementById('authUsername').value.trim(),p=document.getElementById('authPassword').value,msg=document.getElementById('authMsg'),btn=document.getElementById('authSubmitBtn');const fd=new FormData();fd.append('username',u);fd.append('password',p);btn.disabled=true;try{const r=await fetch(isRegisterMode?'/api/register':'/api/login',{method:'POST',body:fd});const d=await r.json();if(!r.ok){msg.textContent=d.detail||'Xatolik!';msg.className='text-center text-xs font-semibold text-red-400';return;}msg.textContent=d.message||'Muvaffaqiyatli!';if(!isRegisterMode){loggedUser=d.username;localStorage.setItem('username',d.username);localStorage.setItem('token',d.token);setTimeout(()=>{closeAuthModal();updateUIState();document.getElementById('authForm').reset();},400);}else{toggleAuthMode();document.getElementById('authPassword').value='';}}catch(e){msg.textContent="Server bilan bog'lanib bo'lmadi!";msg.className='text-center text-xs font-semibold text-red-400';}finally{btn.disabled=false;btn.textContent=isRegisterMode?"Ro'yxatdan o'tish":"Kirish";}});
-async function logout(){const t=localStorage.getItem('token');if(t)try{await fetch('/api/logout',{method:'POST',headers:{Authorization:`Bearer ${t}`}})}catch(e){}localStorage.removeItem('token');localStorage.removeItem('username');loggedUser=null;updateUIState();}
+async function logout(){
+ const t=localStorage.getItem('token');
+ // Tokenni darhol o'chiramiz: logout bosilgandan keyin eski sahifadagi DELETE ham ishlamaydi.
+ localStorage.removeItem('token');
+ localStorage.removeItem('username');
+ loggedUser=null;
+ closeDetailModal();
+ closeAddModal();
+ updateUIState();
+ if(t)try{await fetch('/api/logout',{method:'POST',headers:{Authorization:`Bearer ${t}`}})}catch(e){}
+}
 async function checkAuthAndOpenAdd(){if(!(await getStoredSession())){alert("E'lon berish uchun oldin tizimga kiring!");openAuthModal();return;}const m=document.getElementById('addModal');m.classList.remove('hidden');m.classList.add('flex');}
 function closeAddModal(){const m=document.getElementById('addModal');m.classList.add('hidden');m.classList.remove('flex');}
 document.getElementById('phoneForm').addEventListener('submit',async e=>{e.preventDefault();const t=localStorage.getItem('token');if(!t){alert('Avval tizimga kiring!');openAuthModal();return;}const file=document.getElementById('imageInput').files[0];if(!file)return alert('Telefon rasmini tanlang!');const fd=new FormData();fd.append('image',file);['brandInput','modelInput','storageInput','conditionInput','priceInput','phoneInput','descInput'].forEach((id,i)=>fd.append(['brand','model','storage','condition','price','phone_number','description'][i],document.getElementById(id).value));try{const r=await fetch('/api/listings',{method:'POST',headers:{Authorization:`Bearer ${t}`},body:fd});const d=await r.json();if(r.ok){alert("E'lon muvaffaqiyatli joylandi! 🎉");document.getElementById('phoneForm').reset();closeAddModal();loadListings();}else alert(d.detail||'Xatolik!');}catch(e){alert("Server bilan bog'lanib bo'lmadi!");}});
